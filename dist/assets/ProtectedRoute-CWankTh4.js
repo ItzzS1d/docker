@@ -1,0 +1,1 @@
+import{u as a,a as n,j as t,O as u,N as e}from"./index-BZuEKrGi.js";const l=()=>{const{isAuth:o}=a(),s=n();return o===null?null:o?t.jsx(u,{}):s.pathname==="/"?t.jsx(e,{to:"/login"}):t.jsx(e,{to:`/login?returnUrl=/document${s.search}`})};export{l as default};
