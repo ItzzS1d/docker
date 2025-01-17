@@ -2,7 +2,6 @@ import puppeteer from "puppeteer-core";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import Document from "../model/dataSchema.js";
-import generateHTMLTable from "../libs/generateHtmlTable.js";
 
 export const generatePdf = async (req, res) => {
   const { workCode, Srno, financial_year } = req.query;
@@ -24,24 +23,30 @@ export const generatePdf = async (req, res) => {
     const htmlContent = response.data;
     const $ = cheerio.load(htmlContent, { decodeEntities: false });
 
-    // Extract table data
+    // Extract table data (skip the header rows)
     const tableData = [];
     $("table tr").each((i, row) => {
+      // Skip the first two rows (header and MGNREGA Act line)
+      if (i <= 1) return;
+
       const cells = $(row).find("td");
       if (cells.length > 0) {
         const srNo = $(cells[0]).text().trim();
         const workCode = $(cells[1]).text().trim();
         const jobCard = $(cells[2]).text().trim();
-        const applicantName = $(cells[3]).html();
-        const fromDate = $(cells[4]).text().trim();
-        const toDate = $(cells[5]).text().trim();
-        const daysAllocated = $(cells[6]).text().trim();
+        const applicantNo = $(cells[3]).text().trim();
+        const applicantName = $(cells[4]).html();
+        const fromDate = $(cells[5]).text().trim();
+        const toDate = $(cells[6]).text().trim();
+        const daysAllocated = $(cells[7]).text().trim();
 
-        if (srNo && workCode) {
+        // Only add rows that have a valid Sr. No.
+        if (srNo && !isNaN(parseInt(srNo))) {
           tableData.push({
             srNo,
             workCode,
             jobCard,
+            applicantNo,
             applicantName,
             fromDate,
             toDate,
@@ -51,7 +56,23 @@ export const generatePdf = async (req, res) => {
       }
     });
 
-    const tableHtml = generateHTMLTable(tableData);
+    // Generate table rows HTML without headers
+    const tableRowsHtml = tableData
+      .map(
+        (row) => `
+      <tr>
+        <td class="sr-no">${row.srNo}</td>
+        <td class="work-code">${row.workCode}</td>
+        <td class="job-card">${row.jobCard}</td>
+        <td class="applicant-no">${row.applicantNo}</td>
+        <td class="applicant-name">${row.applicantName}</td>
+        <td class="date">${row.fromDate}</td>
+        <td class="date">${row.toDate}</td>
+        <td class="days">${row.daysAllocated}</td>
+      </tr>
+    `
+      )
+      .join("");
 
     const browser = await puppeteer.launch({
       executablePath: process.env.CHROME_BIN || "/usr/bin/google-chrome",
@@ -79,56 +100,77 @@ export const generatePdf = async (req, res) => {
           src: local('Noto Sans Kannada');
         }
         
+        body {
+          font-family: 'Noto Sans Kannada', Arial, sans-serif;
+        }
+
         table {
           border-collapse: collapse;
-          font-family: 'Noto Sans Kannada', Arial, sans-serif;
-          font-size: 11px;
-          font-weight: bold;
+          width: 100%;
+          font-size: 10px;
         }
-        th,
-        td {
-          border: 1px solid #28282B;
-          padding: 8px;
-          font-weight: bold;
+
+        th, td {
+          border: 1px solid black;
+          padding: 4px;
           text-align: center;
+          font-weight: normal;
+          height: 20px;
+          white-space: nowrap;
         }
+
         th {
-          background-color: #f2f2f2;
+          background-color: white;
           font-weight: bold;
         }
-        .centered {
-          text-align: center;
-        }
+
+        /* Column widths to match first image */
         .sr-no {
-          width: 10px;
+          width: 30px;
         }
         .work-code {
-          width: 50px;
+          width: 150px;
         }
         .job-card {
-          width: 80px;
+          width: 120px;
         }
         .applicant-no {
-          width: 10px;
+          width: 40px;
         }
-        .name {
-          width: 50px;
+        .applicant-name {
+          width: 120px;
         }
         .date {
-          width: 20px;
+          width: 80px;
         }
         .days {
-          width: 10px;
+          width: 20px;
+        }
+
+        /* Ensure consistent row heights */
+        tr {
+          height: 25px;
         }
       </style>
     </head>
     <body>
       <table>
+        <thead>
+          <tr>
+            <th class="sr-no">Sr. No.</th>
+            <th class="work-code">Work Code</th>
+            <th class="job-card">Job Card No.</th>
+            <th class="applicant-no">Applicant No.</th>
+            <th class="applicant-name">Applicant Name</th>
+            <th class="date">Allocation From Date</th>
+            <th class="date">Allocation To Date</th>
+            <th class="days">No. of Days Allocated</th>
+          </tr>
+        </thead>
         <tbody>
-          ${tableHtml}
+          ${tableRowsHtml}
         </tbody>
       </table>
-      <div id="fonts-loaded">Fonts Loaded</div>
     </body>
     </html>
     `;
@@ -137,14 +179,12 @@ export const generatePdf = async (req, res) => {
       waitUntil: "networkidle0",
     });
 
-    // Wait for fonts to load using a different method
+    // Wait for fonts to load
     await page.evaluate(() => {
       return new Promise((resolve) => {
-        // Check if document is already loaded
         if (document.fonts.ready) {
           resolve();
         } else {
-          // Wait for fonts to load
           document.fonts.ready.then(() => {
             resolve();
           });
